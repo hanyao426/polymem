@@ -1,7 +1,9 @@
-# @ccc/polymem
+# PolyMem
 
 > 跨工具记忆系统 · Claude Code / Codex / Cursor / Cline 共用一份记忆。
 > 自动采集工具调用 → LLM 提炼为结构化 observation → FTS5 + 向量混合检索 → 通过 MCP 暴露给所有客户端。
+
+**纯 Python 实现，一行命令装好。**
 
 ---
 
@@ -21,7 +23,7 @@ PolyMem 解决这个：
        │ hooks        │ JSONL watcher     │ (待补)
        ▼              ▼                   ▼
    ┌────────────────────────────────────────────────┐
-   │   Engine (Python · :37700)                     │
+   │   Engine (FastAPI · :37700)                    │
    │   ├─ SQLite + FTS5  (主库)                     │
    │   ├─ ChromaDB       (向量)                     │
    │   ├─ KG SQLite      (时间三元组)               │
@@ -30,80 +32,74 @@ PolyMem 解决这个：
        ▲
        │ MCP stdio
    ┌─────────────┐
-   │ MCP Server  │  ← 任何 MCP 客户端都能挂
+   │ MCP Server  │  ← Claude Code / Codex / 任何 MCP 客户端都能挂
    │  (5 个工具)  │
    └─────────────┘
 ```
 
 ---
 
-## 架构注意
-
-PolyMem 由两半组成：
-
-| 部分 | 语言 | 装在哪 |
-|-----|------|-------|
-| **Engine**（HTTP 服务、存储、LLM 提取、搜索） | Python | `pip install` |
-| **Collectors + MCP server**（每个客户端的适配器） | TypeScript | `npm install -g @ccc/polymem` |
-
-**两半都要装**。npm 包不内嵌 Python 引擎——这是有意为之，避免 npm postinstall 跑 pip 的脆弱链路。
-
----
-
 ## 一、装
 
-### 1.1 装 Engine（Python）
+需要 **Python 3.10+** + **`pipx`**（推荐，全局 CLI 工具的标准工具）：
 
 ```bash
-git clone <repo> ~/demo/polymem    # 把源码 clone 到任意位置
-cd ~/demo/polymem
-python3 -m venv .venv
-.venv/bin/pip install -e .
+brew install pipx && pipx ensurepath
 ```
 
-依赖：`fastapi` `uvicorn` `chromadb`，自动从 `pyproject.toml` 拉。需要 Python 3.10+。
+### 装 PolyMem
 
-### 1.2 装 CLI（npm）
+**直接从 git 装**（推荐）：
 
 ```bash
-npm install -g @ccc/polymem
+pipx install git+https://github.com/hanyao426/polymem.git
 ```
 
-之后全局有 `polymem` 命令。需要 Node 18+。
-
-### 1.3 体检
+或者**本地开发态**（克隆下来要改源码）：
 
 ```bash
-polymem doctor
+git clone https://github.com/hanyao426/polymem.git
+cd polymem
+pipx install -e .
 ```
 
-应该看到 7 条检查（engine、tsx、源码三件套、Claude Code hook、Codex MCP）。引擎没起就是 `✗`，正常。
+装完之后全局有 `polymem` 命令。
 
 ---
 
-## 二、启动 Engine
+## 二、一行命令搞定全部
+
+```bash
+polymem engine &        # 启引擎（后台跑）
+polymem init            # 探测 Claude Code / Codex 并自动配置
+```
+
+`polymem init` 会做：
+
+1. 检查引擎健康
+2. 探测 `~/.claude/settings.json` → 装 hybrid 模式 hooks（轻量 SessionStart 注入）+ 注册 MCP
+3. 探测 `~/.codex/config.toml` → 注册 MCP + 写入 `~/.codex/AGENTS.md` 强制规则
+4. 输出下一步指引
+
+加 `-y` 静默接受所有提示（脚本场景）：
+
+```bash
+polymem init -y
+```
+
+---
+
+## 三、手动配置（如果你不喜欢 init）
+
+### 3.1 启动引擎
 
 ```bash
 polymem engine
-# 或者直接：~/demo/polymem/scripts/start-engine.sh
-```
-
-输出应该是：
-
-```
-▶ PolyMem engine starting on 127.0.0.1:37700
-  provider: claude_cli
-  model:    claude-haiku-4-5-20251001
-  data:     /Users/<you>/.polymem/
+# 或后台：
+nohup polymem engine > ~/.polymem/engine.log 2>&1 &
 ```
 
 LLM provider 默认 `claude_cli`——通过 `claude` 命令子进程走你已登录的 Claude Code 订阅，**零 API key**。其他可选：`anthropic` / `openrouter` / `ollama`，需要配 `POLYMEM_API_KEY`。
-
-后台跑：
-
-```bash
-nohup polymem engine > ~/.polymem/engine.log 2>&1 &
-```
 
 健康检查：
 
@@ -112,26 +108,19 @@ curl http://127.0.0.1:37700/v1/health
 # {"status":"ok","version":"0.1.0"}
 ```
 
----
+### 3.2 接入 Claude Code
 
-## 三、接入 Claude Code
-
-### 3.1 装 hooks（三档模式选一）
+**装 hooks**（三档模式选一）：
 
 ```bash
-# 推荐：混合模式 — 自动采集 + SessionStart 注入轻量 $PMEM 索引（~300 token）
-polymem install-claude-code --hybrid
-
-# 只采集，不注入（怕污染上下文时用）
-polymem install-claude-code
-
-# 完整注入（每个新会话注入完整 $PMEM 块，~3000 token）
-polymem install-claude-code --with-injection
+polymem install claude-code --mode hybrid          # 推荐：轻量注入 ~300t
+polymem install claude-code --mode collect-only    # 只采集，不注入
+polymem install claude-code --mode full-injection  # 完整 $PMEM 块 ~3000t
 ```
 
-脚本会**追加** hook 到 `~/.claude/settings.json`，不会覆盖你已有的 hooks。每次执行前自动备份到 `.bak.YYYYMMDD-HHMMSS`。
+脚本会**追加** hook 到 `~/.claude/settings.json`，**不覆盖**你已有的 hooks。每次自动备份到 `.bak.YYYYMMDD-HHMMSS`。
 
-### 3.2 注册 MCP（让模型能主动查记忆）
+**注册 MCP**（让模型主动查记忆）：
 
 编辑 `~/.claude/settings.json`，在 `mcpServers` 字段加：
 
@@ -146,109 +135,68 @@ polymem install-claude-code --with-injection
 }
 ```
 
-### 3.3 验证
-
-**新开**一个 Claude Code 会话（hooks 和 MCP 都在 session 启动时加载，当前会话不会热加载）。
-
-如果你装的是 `--hybrid` 或 `--with-injection`，会话顶部应该有这样一行：
+**验证**：开**新**会话（hooks 和 MCP 都在 session 启动时加载）。如果装的是 hybrid 或 full-injection，会话顶部应该看到：
 
 ```
 SessionStart:startup says: [PolyMem] injected $PMEM lite index — 12 obs, ~340 tokens, last 3d (project=xxx). Use MCP memory_search/memory_get for details.
 ```
 
-手动确认 MCP：在 Claude Code 里输入 `/mcp`，列表里应该有 `polymem`。
+`/mcp` 命令查 MCP 列表，应该有 `polymem`。
 
-### 3.4 卸载
+**卸载**：
 
 ```bash
-polymem uninstall-claude-code
+polymem install uninstall-claude-code
 ```
 
-只删带 `polymem` 关键字的 hook 行，其他 hook 保留。带备份。
+只删带 `polymem` 关键字的 hook，其他 hook 保留。
+
+### 3.3 接入 Codex
+
+Codex 没有 hook 系统，所以是 **Watcher 进程**。
+
+**配置 MCP + AGENTS.md 规则**（一次性）：
+
+```bash
+polymem install codex
+```
+
+脚本会做两件事：
+- 在 `~/.codex/config.toml` 末尾追加 `[mcp_servers.polymem]`
+- 在 `~/.codex/AGENTS.md` 追加"必须先查记忆"的强制规则
+
+**启动 Watcher**（持续后台跑）：
+
+```bash
+nohup polymem codex > ~/.polymem/codex-watcher.log 2>&1 &
+```
+
+每 30 秒扫一次 `~/.codex/sessions/YYYY/MM/DD/rollout-*.jsonl`，按 byte-offset 增量推给 engine。重启幂等。停止：
+
+```bash
+pkill -f "polymem codex"
+```
+
+**验证**：重启 Codex 让 MCP 生效，然后说一句这种话：
+
+> 之前 ScrollbarService 那次重构是怎么决策的？
+
+如果 Codex 调 `memory_search` 拉到结果并引用"之前在 Claude Code 里..."，跨工具记忆就通了。
 
 ---
 
-## 四、接入 Codex
+## 四、日常用法
 
-Codex CLI 没有 hook 系统，但每个会话完整写到 JSONL。所以 Codex 这边是 **Watcher 进程**而非 hook。
-
-### 4.1 启动 Watcher（采集端）
+### 命令行
 
 ```bash
-polymem codex --background
-# log: ~/.polymem/codex-watcher.log
+polymem doctor                                # 体检（6 项）
+polymem report                                # 今天的日报
+polymem report 2026-04-22 cses-client         # 指定日期 + 项目
+polymem report "" "" codex                    # 只看某客户端
 ```
 
-每 30 秒扫一次 `~/.codex/sessions/YYYY/MM/DD/rollout-*.jsonl`，按 byte-offset 增量推给 engine。重启幂等。
-
-停止：
-
-```bash
-pkill -f codex/watcher.ts
-```
-
-### 4.2 注册 MCP（读端）
-
-编辑 `~/.codex/config.toml`，**追加**到末尾：
-
-```toml
-[mcp_servers.polymem]
-type = "stdio"
-command = "polymem"
-args = ["mcp"]
-```
-
-### 4.3 让 Codex 主动用记忆（关键）
-
-Codex 没有 SessionStart 自动注入机制，必须靠 `AGENTS.md` 全局规则**强制**模型先查记忆。在 `~/.codex/AGENTS.md` 加：
-
-```markdown
-## 记忆系统使用规则
-
-接入 PolyMem MCP（`polymem`）。开始任务前满足任一条件就先调 `memory_search`：
-
-- 用户提到"上次/之前/继续"等指向过去的词
-- 任务涉及已存在的代码模块（不是从零新建）
-- 用户描述的问题听起来已经讨论或修过
-- 用户提到具体文件路径但你不知道历史
-
-调用顺序：先 `memory_search` 找 ID → 再 `memory_get` 拿详情 → 再开始动手。
-引用记忆时注明 client（`claude_code` / `codex` / 等）来源。
-```
-
-完整版（涵盖工具列表、执行模式、失败兜底等）参考 [API.md](./API.md#codex-cli-集成)。
-
-### 4.4 验证
-
-**重启** Codex（重新加载 MCP）。在新会话里说一句这种话试试：
-
-```
-之前 ScrollbarService 那次重构是怎么决策的？
-```
-
-如果 Codex 调 `memory_search("ScrollbarService refactor")` 拉到结果，并且引用时说"之前在 Claude Code 里..."，就证明跨工具读通了。
-
----
-
-## 五、日常用法
-
-### 5.1 命令行查询
-
-```bash
-# 健康 + 数据量
-polymem doctor
-
-# 今天的日报
-polymem report
-
-# 指定日期 + 项目
-polymem report 2026-04-22 cses-client
-
-# 只看某个客户端
-polymem report "" "" codex
-```
-
-### 5.2 HTTP 直查
+### HTTP 直查
 
 ```bash
 # 混合搜索（FTS5 + 向量）
@@ -257,9 +205,6 @@ curl "http://127.0.0.1:37700/v1/search?query=scrollbar&limit=5"
 # 按客户端过滤
 curl "http://127.0.0.1:37700/v1/search?query=auth&client=codex"
 
-# 按类型过滤
-curl "http://127.0.0.1:37700/v1/search?query=bug&type=bugfix"
-
 # 拉一段 $PMEM 上下文块
 curl "http://127.0.0.1:37700/v1/context?project=my-app&lite=true&days=3"
 
@@ -267,20 +212,15 @@ curl "http://127.0.0.1:37700/v1/context?project=my-app&lite=true&days=3"
 curl http://127.0.0.1:37700/v1/observations/123
 ```
 
-### 5.3 SQL 直查（最快）
+### SQL 直查（最快）
 
 ```bash
-# 总数 + 按客户端分桶
 sqlite3 ~/.polymem/polymem.db "SELECT client, COUNT(*) FROM observations GROUP BY client"
-
-# 最近 10 条
 sqlite3 ~/.polymem/polymem.db "SELECT id, client, type, title FROM observations ORDER BY id DESC LIMIT 10"
-
-# Pending 队列状态
 sqlite3 ~/.polymem/polymem.db "SELECT status, COUNT(*) FROM pending_messages GROUP BY status"
 ```
 
-### 5.4 在客户端里让模型主动查（最高频用法）
+### 在客户端里让模型主动查（最高频用法）
 
 不用做任何事，按你日常方式说话即可：
 
@@ -288,31 +228,33 @@ sqlite3 ~/.polymem/polymem.db "SELECT status, COUNT(*) FROM pending_messages GRO
 |------|------------|
 | "继续昨天那个事" | 调 `memory_search` 找最近的相关记忆 |
 | "ScrollbarService 那次重构是咋决定的" | 调 `memory_search("ScrollbarService refactor")` |
-| "这 bug 是不是又出现了" | 调 `memory_search` 类型过滤 `bugfix` |
+| "这 bug 是不是又出现了" | 调 `memory_search` + `type=bugfix` 过滤 |
 
-Codex 端要 `AGENTS.md` 配置过才会主动查（见 4.3）；Claude Code 端只要装了 hybrid/with-injection 模式，模型一进会话就有索引，命中率高。
+Codex 端要 `polymem install codex` 配置过才会主动查；Claude Code 端只要装了 hybrid/full-injection 模式，模型一进会话就有索引。
 
 ---
 
-## 六、所有 CLI 子命令
+## 五、所有 CLI 子命令
 
 ```
-polymem mcp                          # 跑 MCP server（stdio，被客户端调用）
-polymem codex [--background]         # Codex JSONL watcher
-polymem install-claude-code [--hybrid|--with-injection]
-polymem uninstall-claude-code
-polymem engine                       # 启动 Python engine
+polymem engine                                    # 启动 Python 引擎
+polymem mcp                                       # 跑 MCP server（stdio，被客户端调用）
+polymem codex                                     # Codex JSONL watcher
+polymem hook <event>                              # 单个 hook 事件（hooks.json 内部用，不手动调）
+polymem install claude-code [--mode hybrid|collect-only|full-injection]
+polymem install uninstall-claude-code
+polymem install codex
+polymem init [-y]                                 # 一键探测+配置
+polymem doctor                                    # 6 项体检
 polymem report [date] [project] [client]
-polymem doctor                       # 体检
-polymem hook <event>                 # 单个 hook 事件（hooks.json 内部用，不手动调）
 polymem --help
 ```
 
 ---
 
-## 七、配置
+## 六、配置（环境变量）
 
-### 7.1 引擎进程
+### 引擎进程
 
 | 变量 | 默认 | 作用 |
 |------|------|------|
@@ -323,35 +265,30 @@ polymem --help
 | `POLYMEM_MODEL` | `claude-haiku-4-5-20251001` | 提取模型 |
 | `POLYMEM_API_KEY` | — | 非 `claude_cli` 时必填 |
 
-### 7.2 Claude Code 注入窗口
+### Claude Code 注入窗口
 
 | 变量 | 默认 | 作用 |
 |------|------|------|
 | `POLYMEM_LITE_DAYS` | `3` | hybrid 模式注入的时间窗口 |
 | `POLYMEM_LITE_MAX` | `30` | hybrid 模式注入的最大条数 |
 
-### 7.3 Codex Watcher
+### Codex Watcher
 
 | 变量 | 默认 | 作用 |
 |------|------|------|
 | `POLYMEM_CODEX_POLL_MS` | `30000` | 轮询间隔 ms |
-| `POLYMEM_CODEX_BACKFILL_DAYS` | `1` | 只处理最近 N 天的 session 文件（防首次启动大量历史回灌） |
+| `POLYMEM_CODEX_BACKFILL_DAYS` | `1` | 只处理最近 N 天的 session（防首次启动大量历史回灌） |
 
 ---
 
-## 八、排错
+## 七、排错
 
 ### `polymem doctor` 显示 engine 不可达
 
 ```bash
-# 看日志
-tail -50 ~/.polymem/engine.log
-
-# 看进程
-ps aux | grep "engine.server" | grep -v grep
-
-# 重启
-pkill -f engine.server
+tail -50 ~/.polymem/engine.log              # 看日志
+ps aux | grep polymem | grep -v grep        # 看进程
+pkill -f "polymem engine"                   # 重启
 nohup polymem engine > ~/.polymem/engine.log 2>&1 &
 ```
 
@@ -361,7 +298,7 @@ nohup polymem engine > ~/.polymem/engine.log 2>&1 &
 sqlite3 ~/.polymem/polymem.db "SELECT status, COUNT(*) FROM pending_messages GROUP BY status"
 ```
 
-`pending` 长期不减 → worker 没运行 / LLM 调用失败。`failed` 多 → 多半是 `POLYMEM_PROVIDER` 配错（如配了 `openrouter` 但没 key）。
+`pending` 长期不减 → worker 没运行 / LLM 调用失败。`failed` 多 → 多半是 `POLYMEM_PROVIDER` 配错。
 
 复活卡住的 message：
 
@@ -371,15 +308,15 @@ sqlite3 ~/.polymem/polymem.db "UPDATE pending_messages SET status='pending' WHER
 
 ### Claude Code 新会话没看到 `[PolyMem] injected` banner
 
-1. 确认装的是 `--hybrid` 或 `--with-injection`（纯采集模式不注入）：
+1. 确认装的是 `--mode hybrid` 或 `--mode full-injection`：
    ```bash
    jq '.hooks.SessionStart' ~/.claude/settings.json
    ```
 2. 必须**新开**会话——hook 不热加载
 
-### Codex 调 `memory_search` 报 `Failed to parse JSON`
+### Codex 调 `memory_search` 报错
 
-通常是 engine 那侧出错（FTS5 语法、500 等）：
+通常是引擎那侧出错（FTS5 语法、500 等）：
 
 ```bash
 tail -50 ~/.polymem/engine.log
@@ -399,25 +336,50 @@ curl --get --data-urlencode "query=<出问题的查询>" http://127.0.0.1:37700/
 ### 想完全清空数据重来
 
 ```bash
-pkill -f engine.server
+pkill -f "polymem (engine|codex)"
 rm -rf ~/.polymem/
 polymem engine
 ```
 
 ---
 
-## 九、不在包里的东西
+## 八、当前状态 / 不在包里的东西
 
-- **Python engine 源码**——用 `pip install` 装。npm 包只装客户端适配器。
-- **Cursor / Cline / Windsurf / ChatGPT 的 collector**——只有 stub。要接入这些工具需要自己写一个文件实现 `collectors/base/collector.ts` 的 `ICollector` 接口，~100 行模板见 `collectors/codex/watcher.ts`。
-- **数据迁移工具**——从 claude-mem 之类的现存系统导入数据需要自己写脚本。
+- ✅ Claude Code：完整支持（hooks + MCP）
+- ✅ Codex CLI：完整支持（watcher + MCP + AGENTS.md）
+- ⏸️ Cursor / Cline / Windsurf / ChatGPT Desktop：未来扩展，需要为每个工具写一个 Watcher（或 Hook，看其能力）。模板见 `polymem/cli/codex_watcher.py`，~200 行
+- ⏸️ 数据迁移工具：从 claude-mem 之类的现存系统导入需要自己写脚本
 
 ---
 
-## 十、文档地图
+## 九、文档地图
 
 - `README.md`（本文）—— 用户视角的怎么装怎么用
 - [API.md](./API.md) —— HTTP 端点完整参考、MCP 工具签名、Codex JSONL → PolyMem 映射
-- [ARCHITECTURE.md](./ARCHITECTURE.md) —— 架构设计原理、模块来源
-- [docs/COLLECTOR_SPEC.md](./docs/COLLECTOR_SPEC.md) —— 写新 collector 的规范
-- [docs/ENGINE_API.md](./docs/ENGINE_API.md) —— 引擎内部 API
+
+---
+
+## 十、内部架构（懒得看可跳过）
+
+```
+polymem/                  # Python 包
+├── server.py             # FastAPI 引擎 + ExtractionWorker 后台线程
+├── db.py                 # SQLite + FTS5 schema
+├── extractor.py          # 跨 provider LLM 调度（claude_cli/anthropic/openrouter/ollama）
+├── context_generator.py  # $PMEM 块生成（lite + full）
+├── vector_store.py       # ChromaDB 封装
+├── searcher.py           # 两层检索 + BM25 重排（来自 MemPalace）
+├── knowledge_graph.py    # KG SQLite（来自 MemPalace）
+├── report.py             # 日报聚合（按文件路径主题聚类）
+├── modes/code.json       # LLM 提取 prompt 模板（来自 claude-mem）
+├── hooks/                # Claude Code hook JSON 模板（3 档）
+└── cli/                  # CLI 入口
+    ├── main.py           # subcommand 分发
+    ├── client.py         # HTTP 客户端（stdlib only，hook 冷启动 ~80ms）
+    ├── hook.py           # Claude Code hook 处理器
+    ├── codex_watcher.py  # Codex JSONL watcher 守护进程
+    ├── mcp_server.py     # MCP stdio server（5 个读工具）
+    └── install.py        # 装/卸 Claude Code hooks + Codex 配置
+```
+
+工程感想：[ARCHITECTURE.md](./ARCHITECTURE.md) 的初版讲了"为什么 Collector pattern" + 复用 claude-mem / MemPalace 的取舍。这个文档现在已经过时（v0.1 全 Python 化时合并到 README），但思路还能看。

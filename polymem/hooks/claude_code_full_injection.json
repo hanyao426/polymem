@@ -1,6 +1,6 @@
 {
-  "description": "PolyMem Claude Code hooks — FULL (collection + SessionStart injection)",
-  "_note": "Opt-in version. When you trust the memory quality, replace hooks.json with this file and re-run install-claude-code.sh.",
+  "description": "PolyMem Claude Code hooks — FULL INJECTION (collect + complete $PMEM block at SessionStart)",
+  "_note": "Heaviest variant. Injects ~3000 tokens at every session start, including last summary detail. Use only if you really need rich context up front.",
   "hooks": {
     "SessionStart": [
       {
@@ -8,7 +8,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "bun \"${POLYMEM_ROOT:-$HOME/demo/polymem}/collectors/claude-code/hook-handler.ts\" context",
+            "command": "{{POLYMEM_BIN}} hook context",
             "timeout": 30
           }
         ]
@@ -19,7 +19,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "bun \"${POLYMEM_ROOT:-$HOME/demo/polymem}/collectors/claude-code/hook-handler.ts\" session-init",
+            "command": "{{POLYMEM_BIN}} hook session-init",
             "timeout": 30
           }
         ]
@@ -31,7 +31,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "bun \"${POLYMEM_ROOT:-$HOME/demo/polymem}/collectors/claude-code/hook-handler.ts\" observation",
+            "command": "{{POLYMEM_BIN}} hook observation",
             "timeout": 60
           }
         ]
@@ -42,7 +42,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "bun \"${POLYMEM_ROOT:-$HOME/demo/polymem}/collectors/claude-code/hook-handler.ts\" summarize",
+            "command": "{{POLYMEM_BIN}} hook summarize",
             "timeout": 60
           }
         ]
@@ -53,7 +53,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "bun \"${POLYMEM_ROOT:-$HOME/demo/polymem}/collectors/claude-code/hook-handler.ts\" session-complete",
+            "command": "{{POLYMEM_BIN}} hook session-complete",
             "timeout": 15
           }
         ]

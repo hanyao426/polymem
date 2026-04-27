@@ -2,7 +2,7 @@
 
 > 跨模型记忆系统的完整接口手册。
 > 引擎：HTTP REST（FastAPI），默认监听 `http://127.0.0.1:37700`
-> 读层：MCP stdio server（`mcp-server/server.ts`）
+> 读层：MCP stdio server（`polymem/cli/mcp_server.py`）
 > 协议版本：v0.1.0
 
 ---
@@ -33,14 +33,14 @@
 
 ```bash
 # 1. 启动引擎
-~/demo/polymem/scripts/start-engine.sh
+polymem engine
 
 # 2. 健康检查
 curl http://127.0.0.1:37700/v1/health
 # → {"status":"ok","version":"0.1.0"}
 
 # 3. 装 hooks（推荐混合模式）
-~/demo/polymem/scripts/install-claude-code.sh --hybrid
+polymem install claude-code --mode hybrid
 
 # 4. 拉一段轻量上下文
 curl "http://127.0.0.1:37700/v1/context?project=cses-40&lite=true&days=3"
@@ -554,9 +554,9 @@ curl "http://127.0.0.1:37700/v1/report?format=json"
 或直接走脚本：
 
 ```bash
-~/demo/polymem/scripts/daily-report.sh                  # 今日
-~/demo/polymem/scripts/daily-report.sh 2026-04-22       # 指定日期
-~/demo/polymem/scripts/daily-report.sh "" cses-40       # 今日 + 项目过滤
+polymem report                  # 今日
+polymem report 2026-04-22       # 指定日期
+polymem report "" cses-40       # 今日 + 项目过滤
 ```
 
 **Markdown 响应（节选）**
@@ -648,7 +648,7 @@ curl "http://127.0.0.1:37700/v1/report?format=json"
 }
 ```
 
-⚠ 当前 MCP `memory_context` 透传未带 `lite` / `days` 参数。**混合模式注入由 hook 直接调 HTTP 完成**（`hook-handler.ts` 的 `context-lite` 命令），MCP 这层暂时只能拉完整版。
+⚠ 当前 MCP `memory_context` 透传未带 `lite` / `days` 参数。**混合模式注入由 hook 直接调 HTTP 完成**（`polymem/cli/hook.py` 的 `context-lite` 命令），MCP 这层暂时只能拉完整版。
 
 ### `memory_kg_query`
 
@@ -684,7 +684,7 @@ curl "http://127.0.0.1:37700/v1/report?format=json"
 | `POLYMEM_MODEL` | `claude-haiku-4-5-20251001` | 提取模型 |
 | `POLYMEM_API_KEY` | — | provider=非 claude_cli 时需要 |
 
-Hook 进程（`hook-handler.ts`）：
+Hook 进程（`polymem/cli/hook.py`）：
 
 | 变量 | 默认 | 作用 |
 |------|------|------|
@@ -693,7 +693,7 @@ Hook 进程（`hook-handler.ts`）：
 | `POLYMEM_LITE_DAYS` | `3` | 混合模式注入的时间窗口 |
 | `POLYMEM_LITE_MAX` | `30` | 混合模式注入的最大条数 |
 
-MCP 进程（`mcp-server/server.ts`）：
+MCP 进程（`polymem/cli/mcp_server.py`）：
 
 | 变量 | 默认 | 作用 |
 |------|------|------|
@@ -710,7 +710,7 @@ Codex CLI **不暴露 hooks**，但每个会话完整写到 `~/.codex/sessions/Y
 ```
 Codex CLI 写 JSONL
        ↓ (每 30s)
-codex/watcher.ts (后台进程)
+polymem codex (后台进程)
        ↓ HTTP POST
 PolyMem Engine :37700
        ↓
@@ -732,13 +732,13 @@ PolyMem Engine :37700
 cat >> ~/.codex/config.toml <<'EOF'
 [mcp_servers.polymem]
 type = "stdio"
-command = "bun"
-args = ["/Users/cses-40/demo/polymem/mcp-server/server.ts"]
+command = "polymem"
+args = ["mcp"]
 EOF
 
 # 启动采集 watcher（前台或后台）
-~/demo/polymem/scripts/start-codex-watcher.sh                # foreground
-~/demo/polymem/scripts/start-codex-watcher.sh --background   # background
+polymem codex                # foreground
+nohup polymem codex &   # background
 ```
 
 **状态查看**
@@ -771,13 +771,13 @@ tail -f ~/.polymem/codex-watcher.log
 - 首次启动若 `BACKFILL_DAYS` 较大，可能产生大量 pending（每条 ~10 秒走 claude_cli 提取），建议默认从 1 天开始
 - State 文件 `~/.polymem/codex-watcher-state.json` 记录每个 JSONL 的 byte offset，重启幂等
 - 写入中的 JSONL 末尾可能是半行，watcher 只消费到最后完整换行符——下次轮询补齐
-- `update_plan` 工具默认在 SKIP_TOOLS 列表（噪声大），可改 `watcher.ts` 顶部增删
+- `update_plan` 工具默认在 SKIP_TOOLS 列表（噪声大），可改 `polymem/cli/codex_watcher.py` 顶部增删
 
 **回退**
 
 ```bash
 # 停 watcher
-pkill -f codex/watcher.ts
+pkill -f polymem codex
 
 # 删 MCP 注册（手动编辑 ~/.codex/config.toml 删除 [mcp_servers.polymem] 段）
 # 或还原备份：
@@ -801,8 +801,8 @@ rm ~/.polymem/codex-watcher-state.json
 切换模式：
 
 ```bash
-~/demo/polymem/scripts/uninstall-claude-code.sh
-~/demo/polymem/scripts/install-claude-code.sh --hybrid
+polymem install uninstall-claude-code
+polymem install claude-code --mode hybrid
 ```
 
 每次安装都会自动备份 `~/.claude/settings.json` 到 `.bak.YYYYMMDD-HHMMSS`。
@@ -842,7 +842,7 @@ ps aux | grep "engine.server" | grep -v grep
 ```
 
 无 polymem 相关 hook → 重新装：`install-claude-code.sh --hybrid`
-引擎未运行 → `~/demo/polymem/scripts/start-engine.sh`
+引擎未运行 → `polymem engine`
 
 ---
 

@@ -1,0 +1,51 @@
+{
+  "description": "PolyMem Claude Code hooks — COLLECT-ONLY (no SessionStart injection)",
+  "_note": "Pure collection mode. Use claude_code_hybrid.json for lightweight injection or claude_code_with_injection.json for full $PMEM injection.",
+  "hooks": {
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "{{POLYMEM_BIN}} hook session-init",
+            "timeout": 30
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "{{POLYMEM_BIN}} hook observation",
+            "timeout": 60
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "{{POLYMEM_BIN}} hook summarize",
+            "timeout": 60
+          }
+        ]
+      }
+    ],
+    "SessionEnd": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "{{POLYMEM_BIN}} hook session-complete",
+            "timeout": 15
+          }
+        ]
+      }
+    ]
+  }
+}

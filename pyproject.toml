@@ -1,21 +1,32 @@
 [project]
 name = "polymem"
 version = "0.1.0"
-description = "Cross-model automated memory system (Claude Code / Cursor / Cline / ChatGPT / ...)"
+description = "Cross-tool memory system for Claude Code, Codex, Cursor, Cline. Auto-collect tool calls, extract structured observations, search via FTS5+vector, share across clients via MCP."
 requires-python = ">=3.10"
 dependencies = [
     "fastapi>=0.115",
     "uvicorn>=0.32",
     "pydantic>=2.8",
     "chromadb>=0.5.20",
+    "mcp>=1.0",
 ]
 
 [project.scripts]
-polymem-engine = "engine.server:main"
+polymem = "polymem.cli.main:main"
 
 [build-system]
 requires = ["setuptools>=68"]
 build-backend = "setuptools.build_meta"
 
 [tool.setuptools]
-packages = ["engine", "engine.backends", "engine.modes"]
+packages = [
+    "polymem",
+    "polymem.backends",
+    "polymem.cli",
+    "polymem.modes",
+    "polymem.hooks",
+]
+
+[tool.setuptools.package-data]
+"polymem.modes" = ["*.json"]
+"polymem.hooks" = ["*.json"]

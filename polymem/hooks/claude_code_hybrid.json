@@ -1,0 +1,63 @@
+{
+  "description": "PolyMem Claude Code hooks — HYBRID (collect + lightweight $PMEM index injection)",
+  "_note": "SessionStart injects only titles + IDs from the last 3 days (~300-500 tokens). Detailed observation bodies are fetched on demand via MCP tools. Tune via env: POLYMEM_LITE_DAYS=7 POLYMEM_LITE_MAX=50.",
+  "hooks": {
+    "SessionStart": [
+      {
+        "matcher": "startup|clear|compact",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "{{POLYMEM_BIN}} hook context-lite",
+            "timeout": 30
+          }
+        ]
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "{{POLYMEM_BIN}} hook session-init",
+            "timeout": 30
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "{{POLYMEM_BIN}} hook observation",
+            "timeout": 60
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "{{POLYMEM_BIN}} hook summarize",
+            "timeout": 60
+          }
+        ]
+      }
+    ],
+    "SessionEnd": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "{{POLYMEM_BIN}} hook session-complete",
+            "timeout": 15
+          }
+        ]
+      }
+    ]
+  }
+}
