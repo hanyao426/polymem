@@ -1,0 +1,63 @@
+{
+  "description": "PolyMem Claude Code hooks — FULL (collection + SessionStart injection)",
+  "_note": "Opt-in version. When you trust the memory quality, replace hooks.json with this file and re-run install-claude-code.sh.",
+  "hooks": {
+    "SessionStart": [
+      {
+        "matcher": "startup|clear|compact",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bun \"${POLYMEM_ROOT:-$HOME/demo/polymem}/collectors/claude-code/hook-handler.ts\" context",
+            "timeout": 30
+          }
+        ]
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bun \"${POLYMEM_ROOT:-$HOME/demo/polymem}/collectors/claude-code/hook-handler.ts\" session-init",
+            "timeout": 30
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bun \"${POLYMEM_ROOT:-$HOME/demo/polymem}/collectors/claude-code/hook-handler.ts\" observation",
+            "timeout": 60
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bun \"${POLYMEM_ROOT:-$HOME/demo/polymem}/collectors/claude-code/hook-handler.ts\" summarize",
+            "timeout": 60
+          }
+        ]
+      }
+    ],
+    "SessionEnd": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bun \"${POLYMEM_ROOT:-$HOME/demo/polymem}/collectors/claude-code/hook-handler.ts\" session-complete",
+            "timeout": 15
+          }
+        ]
+      }
+    ]
+  }
+}
