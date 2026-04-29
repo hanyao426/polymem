@@ -41,11 +41,32 @@ PolyMem 解决这个：
 
 ## 一、装
 
-需要 **Python 3.10+** + **`pipx`**（推荐，全局 CLI 工具的标准工具）：
+### 前置依赖
+
+| # | 必备项 | 说明 |
+|---|------|------|
+| 1 | Python 3.10+ | 引擎运行时 |
+| 2 | `pipx` | 全局安装 CLI 工具的标准方式 |
+| 3 | **LLM 调用入口（二选一，否则提取 worker 全部失败）** | 见下方「LLM provider 必读」 |
 
 ```bash
 brew install pipx && pipx ensurepath
 ```
+
+### ⚠️ LLM provider 必读
+
+PolyMem 的核心能力是把工具调用提炼成结构化记忆，这一步**必须**调用 LLM。默认走 `claude_cli`（subprocess 调你本机已登录的 `claude` 命令）——**这要求你装了 Claude Code 并已登录订阅**。
+
+**如果你没有 Claude Code 订阅，装 PolyMem 之前务必先决定走哪条 LLM 路线**：
+
+| 路线 | 设置 | 成本 |
+|------|------|------|
+| **Claude Code 订阅**（默认，零额外 key） | 不用配 | 已订阅 Claude Max/Team 即免费 |
+| **Anthropic API** | `POLYMEM_PROVIDER=anthropic POLYMEM_API_KEY=sk-ant-...` | 按 token 计费 |
+| **OpenRouter**（含免费模型） | `POLYMEM_PROVIDER=openrouter POLYMEM_API_KEY=sk-or-...` `POLYMEM_MODEL=xiaomi/mimo-v2-flash:free` | 免费模型可零成本，付费按 token |
+| **本地 Ollama**（零成本零联网） | `POLYMEM_PROVIDER=ollama POLYMEM_MODEL=qwen2.5:7b` | 仅本机算力 |
+
+**症状判别**：如果你装好之后 `polymem doctor` 一切绿但 `pending_messages` 表里 `failed` 一直涨、`processed` 不动 → 100% 是 LLM provider 没配对。
 
 ### 装 PolyMem
 
@@ -64,6 +85,15 @@ pipx install -e .
 ```
 
 装完之后全局有 `polymem` 命令。
+
+如果你走的是 API key 路线，把 provider 写到 shell rc 里持久化：
+
+```bash
+# ~/.zshrc 或 ~/.bashrc
+export POLYMEM_PROVIDER=anthropic
+export POLYMEM_API_KEY=sk-ant-...
+export POLYMEM_MODEL=claude-haiku-4-5-20251001
+```
 
 ---
 
