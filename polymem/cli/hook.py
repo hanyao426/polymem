@@ -23,6 +23,13 @@ SKIP_TOOLS = {
     "TodoWrite",
     "AskUserQuestion",
 }
+# Tool-name prefixes to skip — `mcp__polymem__*` are PolyMem reading itself,
+# pure metadata noise that has no value as a "what the user did" observation.
+SKIP_PREFIXES = ("mcp__polymem__",)
+
+
+def _should_skip_tool(name: str) -> bool:
+    return name in SKIP_TOOLS or any(name.startswith(p) for p in SKIP_PREFIXES)
 
 
 def _read_stdin_json() -> dict:
@@ -80,7 +87,7 @@ def _cmd_session_init(api: PolyMemClient, hook_input: dict) -> None:
 
 def _cmd_observation(api: PolyMemClient, hook_input: dict) -> None:
     tool_name = hook_input.get("tool_name") or ""
-    if tool_name in SKIP_TOOLS:
+    if _should_skip_tool(tool_name):
         _emit_continue()
         return
     mem_id = _resolve_session(api, hook_input)

@@ -26,6 +26,13 @@ STATE_PATH = Path.home() / ".polymem" / "codex-watcher-state.json"
 DEFAULT_POLL_MS = int(os.environ.get("POLYMEM_CODEX_POLL_MS", "30000"))
 DEFAULT_BACKFILL_DAYS = int(os.environ.get("POLYMEM_CODEX_BACKFILL_DAYS", "1"))
 SKIP_TOOLS = {"update_plan"}
+# Tool-name prefixes to skip — `mcp__polymem__*` are PolyMem reading itself,
+# pure metadata noise that has no value as a "what the user did" observation.
+SKIP_PREFIXES = ("mcp__polymem__",)
+
+
+def _should_skip_tool(name: str) -> bool:
+    return name in SKIP_TOOLS or any(name.startswith(p) for p in SKIP_PREFIXES)
 
 
 # ─── State persistence ──────────────────────────────────────────────────────
@@ -135,7 +142,7 @@ def _process_file(path: Path, state: dict, api: PolyMemClient) -> None:
             }
         elif kind == ("response_item", "function_call_output"):
             call = entry["pendingCalls"].pop(payload.get("call_id", ""), None)
-            if call and call["name"] not in SKIP_TOOLS:
+            if call and not _should_skip_tool(call["name"]):
                 output = payload.get("output")
                 if not isinstance(output, str):
                     output = json.dumps(output, ensure_ascii=False)
