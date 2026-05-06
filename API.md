@@ -10,6 +10,7 @@
 ## 目录
 
 - [快速开始](#快速开始)
+- [CLI 命令参考](#cli-命令参考)
 - [总览](#总览)
 - [HTTP API](#http-api)
   - [健康 / 元信息](#健康--元信息)
@@ -25,26 +26,71 @@
 - [MCP 工具](#mcp-工具)
 - [环境变量](#环境变量)
 - [Hooks 模式](#hooks-模式)
+- [Codex CLI 集成](#codex-cli-集成)
 - [常见错误](#常见错误)
 
 ---
 
 ## 快速开始
 
+> **前置条件**：Python ≥ 3.10、`pipx`（推荐）或 `pip`。
+
 ```bash
-# 1. 启动引擎
+# 0. 安装（首次）
+pipx install polymem
+# 或源码安装：cd ~/demo/polymem && pipx install -e .
+
+# 1. 启动引擎（前台）
 polymem engine
+# → 监听 127.0.0.1:37700，Ctrl+C 退出
+
+# 1b. 后台运行（保留日志）
+nohup polymem engine > /tmp/polymem-engine.log 2>&1 &
+# 引擎自身的运行日志写在 ~/.polymem/engine.log
 
 # 2. 健康检查
 curl http://127.0.0.1:37700/v1/health
 # → {"status":"ok","version":"0.1.0"}
 
-# 3. 装 hooks（推荐混合模式）
-polymem install claude-code --mode hybrid
+# 3. 一键体检 + 配置（推荐新用户走这条）
+polymem doctor          # 6 项检查：引擎、PATH、Claude Code hooks/MCP、Codex MCP/AGENTS.md
+polymem init            # 交互式：自动检测客户端 + 提示注册 hooks/MCP
 
-# 4. 拉一段轻量上下文
+# 3b. 或手动安装 Claude Code hooks（混合模式 = 推荐）
+polymem install claude-code --mode hybrid
+# 模式可选：collect-only（纯采集）/ hybrid（默认）/ full-injection（完整 $PMEM 注入）
+
+# 4. 拉一段轻量上下文（验证写入链路 + 注入效果）
 curl "http://127.0.0.1:37700/v1/context?project=cses-40&lite=true&days=3"
 ```
+
+**端口被占用**（重复启动常见）：
+
+```bash
+# 报错：[Errno 48] address already in use
+lsof -i :37700                # 查占用 PID
+kill <PID>                    # 或保留旧进程，跳过 step 1
+# 或换端口：POLYMEM_PORT=37701 polymem engine
+```
+
+---
+
+## CLI 命令参考
+
+| 命令 | 用途 |
+|------|------|
+| `polymem engine` | 启动 FastAPI 引擎（前台），监听 `POLYMEM_HOST:POLYMEM_PORT` |
+| `polymem mcp` | stdio MCP server —— 由 Claude Code / Codex 客户端拉起，不要手动跑 |
+| `polymem codex` | Codex JSONL watcher（采集端）；前台或 `nohup ... &` 后台 |
+| `polymem init` | 交互式 bootstrap：自动检测 Claude Code / Codex，按需注册 hooks 和 MCP |
+| `polymem doctor` | 6 项健康检查：引擎、PATH、Claude Code hooks/MCP、Codex MCP/AGENTS.md |
+| `polymem install claude-code [--mode collect-only\|hybrid\|full-injection]` | 装 Claude Code hooks + MCP，默认 `hybrid` |
+| `polymem install uninstall-claude-code` | 卸载 Claude Code hooks + MCP（保留备份） |
+| `polymem install codex` | 注册 Codex MCP server + 写 `~/.codex/AGENTS.md` 规则 |
+| `polymem hook <event>` | 内部调用入口，由 Claude Code hooks 配置触发；`event` ∈ `session-init` / `observation` / `summarize` / `session-complete` / `context` / `context-lite` |
+| `polymem report [date] [project] [client]` | 生成日报，等价于 `GET /v1/report` |
+
+**注意**：`polymem report --help` / `-h` 不会打印帮助，会被当成 `date` 参数走查询；用 `polymem report -h 2>&1` 看不到 usage 是 CLI 设计取舍，不是 bug。
 
 ---
 
@@ -184,7 +230,7 @@ HTTP 状态码：`200` 成功 · `400` 参数错误 · `404` 未找到 · `500` 
 { "pending_id": 9912 }
 ```
 
-#### `GET /v1/observations/{id}`
+#### `GET /v1/observations/{obs_id}`
 
 **响应**
 
@@ -728,17 +774,21 @@ PolyMem Engine :37700
 **启动**
 
 ```bash
-# 注册 MCP 读层（一次性，需要重启 Codex 生效）
-cat >> ~/.codex/config.toml <<'EOF'
-[mcp_servers.polymem]
-type = "stdio"
-command = "polymem"
-args = ["mcp"]
-EOF
+# 1. 注册 MCP 读层 + AGENTS.md 规则（一次性，会自动备份原 config.toml）
+polymem install codex
+# 等价的手工方式（不推荐）：
+#   cat >> ~/.codex/config.toml <<'EOF'
+#   [mcp_servers.polymem]
+#   type = "stdio"
+#   command = "polymem"
+#   args = ["mcp"]
+#   EOF
 
-# 启动采集 watcher（前台或后台）
-polymem codex                # foreground
-nohup polymem codex &   # background
+# 2. 重启 Codex CLI 让 MCP 配置生效
+
+# 3. 启动采集 watcher（前台或后台）
+polymem codex                                              # foreground
+nohup polymem codex > /tmp/polymem-codex.log 2>&1 &        # background（推荐）
 ```
 
 **状态查看**
@@ -776,8 +826,8 @@ tail -f ~/.polymem/codex-watcher.log
 **回退**
 
 ```bash
-# 停 watcher
-pkill -f polymem codex
+# 停 watcher（必须加引号，否则 pkill 只匹配第二个词 "codex" 会误杀 Codex CLI 本体）
+pkill -f "polymem codex"
 
 # 删 MCP 注册（手动编辑 ~/.codex/config.toml 删除 [mcp_servers.polymem] 段）
 # 或还原备份：
@@ -794,18 +844,31 @@ rm ~/.polymem/codex-watcher-state.json
 
 | 模式 | 安装命令 | SessionStart 注入 | 体积 | 适合场景 |
 |------|----------|------------------|------|----------|
-| 纯采集 | `install-claude-code.sh` | ❌ | 0 | 还在验证记忆质量 |
-| 混合 | `install-claude-code.sh --hybrid` | ✅ 轻量索引 | ~300-700t | **推荐**：标题级注入 + MCP 深挖 |
-| 完整 | `install-claude-code.sh --with-injection` | ✅ 完整 $PMEM | ~3000+t | 需要丰富上下文 |
+| 纯采集 | `polymem install claude-code --mode collect-only` | ❌ | 0 | 还在验证记忆质量 |
+| 混合 | `polymem install claude-code --mode hybrid` *(默认)* | ✅ 轻量索引 | ~300-700t | **推荐**：标题级注入 + MCP 深挖 |
+| 完整 | `polymem install claude-code --mode full-injection` | ✅ 完整 $PMEM | ~3000+t | 需要丰富上下文 |
 
-切换模式：
+切换模式（先卸再装，避免重复 hook）：
 
 ```bash
 polymem install uninstall-claude-code
 polymem install claude-code --mode hybrid
 ```
 
-每次安装都会自动备份 `~/.claude/settings.json` 到 `.bak.YYYYMMDD-HHMMSS`。
+`polymem install claude-code` 同时完成两件事：
+
+1. 写入 `~/.claude/settings.json` 的 `hooks.*`（SessionStart / PostToolUse / Stop / SessionEnd）
+2. 注册 `mcpServers.polymem`（让 Claude Code 能调 `memory_search` 等 MCP 工具）
+
+每次安装都会自动备份 `~/.claude/settings.json` 到 `.bak.YYYYMMDD-HHMMSS`。验证：
+
+```bash
+polymem doctor
+# ✓ engine reachable
+# ✓ polymem in PATH
+# ✓ claude code hooks installed
+# ✓ claude code MCP registered
+```
 
 ---
 
@@ -836,13 +899,44 @@ sqlite3 ~/.polymem/polymem.db "SELECT status, COUNT(*) FROM pending_messages GRO
 
 ### Hook 未触发
 
+第一手诊断：
+
 ```bash
-jq '.hooks | keys' ~/.claude/settings.json
-ps aux | grep "engine.server" | grep -v grep
+polymem doctor
 ```
 
-无 polymem 相关 hook → 重新装：`install-claude-code.sh --hybrid`
-引擎未运行 → `polymem engine`
+任何一项 `✗` 都是触发不了的根因。常见组合：
+
+| doctor 输出 | 修复 |
+|------------|------|
+| `✗ engine reachable` | `nohup polymem engine > /tmp/polymem-engine.log 2>&1 &` |
+| `✗ polymem in PATH` | `pipx install polymem`，或把 `~/.local/bin` 加到 PATH |
+| `✗ claude code hooks installed` | `polymem install claude-code --mode hybrid` |
+| `✗ claude code MCP registered` | 同上（`install claude-code` 同时注册 MCP） |
+
+手工核对：
+
+```bash
+jq '.hooks | keys' ~/.claude/settings.json                 # 应包含 SessionStart, PostToolUse, Stop, SessionEnd
+jq '.mcpServers.polymem' ~/.claude/settings.json           # 应非 null
+ps aux | grep "polymem engine" | grep -v grep              # 应有进程
+```
+
+### 端口被占用 `[Errno 48] address already in use`
+
+引擎已经在跑了，多半是上一个 `nohup` 还在。要么直接复用：
+
+```bash
+curl http://127.0.0.1:37700/v1/health    # 已经 ok 就别重启了
+```
+
+要么干掉重启：
+
+```bash
+lsof -i :37700
+kill <PID>
+nohup polymem engine > /tmp/polymem-engine.log 2>&1 &
+```
 
 ---
 
